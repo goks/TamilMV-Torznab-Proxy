@@ -12,6 +12,30 @@ import {createRssFeed, torznabTest, noTopics} from './torznab.js';
 
 const router = new express.Router();
 
+const lastApiInfo = {
+	fullQuery: '-',
+	requestUrl: '-',
+	responseLength: 0,
+	status: null,
+	error: null,
+	updatedAt: null,
+};
+
+const refreshLastApiInfo = ({
+	fullQuery = '-',
+	requestUrl = '-',
+	status = null,
+	responseLength = 0,
+	error = null,
+}) => {
+	lastApiInfo.fullQuery = fullQuery;
+	lastApiInfo.requestUrl = requestUrl;
+	lastApiInfo.responseLength = responseLength;
+	lastApiInfo.status = status;
+	lastApiInfo.error = error;
+	lastApiInfo.updatedAt = new Date().toISOString();
+};
+
 const processKeyword = key => {
 	const searchKey = key?.toString()?.trim() || '';
 	return searchKey ? encodeURIComponent(searchKey) : '';
@@ -97,6 +121,13 @@ router.get('/api', async (request, response) => {
 		config = await getConfig();
 	} catch (dbError) {
 		console.error('Failed to read database configuration:', dbError.message);
+		refreshLastApiInfo({
+			fullQuery: request.query.q?.toString() || '-',
+			requestUrl: `${request.protocol}://${request.get('host')}${request.originalUrl}`,
+			status: 500,
+			responseLength: 0,
+			error: dbError.message,
+		});
 		return response.status(500).json({
 			message: 'Database connection failed',
 			status: 'FAILED',
@@ -104,11 +135,19 @@ router.get('/api', async (request, response) => {
 	}
 
 	const {tamilMvUrl, ...configs} = config;
-	console.log('query', request.query);
+	const rawQuery = request.query.q?.toString() || '';
 	const baseUrl = request.protocol + '://' + request.get('host');
+	const requestUrl = `${request.protocol}://${request.get('host')}${request.originalUrl}`;
 	const testMode = request.query.t === 'caps';
 
-	let keyword = processKeyword(request.query.q);
+	let keyword = processKeyword(rawQuery);
+	refreshLastApiInfo({
+		fullQuery: rawQuery || '-',
+		requestUrl,
+		status: null,
+		responseLength: 0,
+		error: null,
+	});
 	if (!testMode && !keyword && configs.custom_search) {
 		keyword = encodeURIComponent(configs.custom_search_keyword);
 	}
@@ -149,6 +188,13 @@ router.get('/api', async (request, response) => {
 			}
 		} catch (scrapError) {
 			console.error('Error fetching topics / scraping torrents:', scrapError.message);
+			refreshLastApiInfo({
+				fullQuery: rawQuery || '-',
+				requestUrl,
+				status: 529,
+				responseLength: 0,
+				error: scrapError.message,
+			});
 			return response.status(529).json({
 				message: 'Could not get topics',
 				status: 'FAILED',
@@ -156,6 +202,13 @@ router.get('/api', async (request, response) => {
 		}
 	} catch (searchError) {
 		console.error(`Error connecting to search API at ${tamilMvUrl}:`, searchError.message);
+		refreshLastApiInfo({
+			fullQuery: rawQuery || '-',
+			requestUrl,
+			status: 521,
+			responseLength: 0,
+			error: searchError.message,
+		});
 		return response.status(521).json({
 			message: `Could not connect to the server ${tamilMvUrl}`,
 			status: 'FAILED',
@@ -177,8 +230,20 @@ router.get('/api', async (request, response) => {
 	});
 	const xmlContent = builder.build(parser.parse(feed));
 
+	refreshLastApiInfo({
+		fullQuery: rawQuery || '-',
+		requestUrl,
+		status: 200,
+		responseLength: xmlContent.length,
+		error: null,
+	});
+
 	response.contentType('Content-Type', 'text/xml');
 	return response.send(xmlContent);
+});
+
+router.get('/api/last', (request, response) => {
+	return response.json(lastApiInfo);
 });
 
 export default router;

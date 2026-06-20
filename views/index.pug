@@ -58,16 +58,42 @@ html(lang="en")
                         .helper-row
                             span.search-hint Type a movie name and click Search
                         button#search_btn.btn-submit(type="button") Search
+                        button#xmlToggle.btn-secondary(type="button") Show XML Info
                         .search-feedback
                         .search-results(id="searchResults")
+                        .xml-info-panel.hidden
+                            .info-row
+                                span.info-label Full Query:
+                                span#lastQuery.info-value -
+                            .info-row
+                                span.info-label Request URL:
+                                span#lastRequestUrl.info-value -
+                            .info-row
+                                span.info-label Result Length:
+                                span#resultLength.info-value 0
+                            .download-row
+                                a#downloadXmlLink.download.hidden Download XML Response
                     
                     button.btn-submit(type="submit") Save Configuration
+                    .log-section
+                        h3 Logs
+                        .log-panel(id="logPanel")
 
         script.
             const searchBtn = document.getElementById('search_btn');
+            const xmlToggle = document.getElementById('xmlToggle');
             const searchInput = document.getElementById('search_query');
             const searchFeedback = document.querySelector('.search-feedback');
             const searchResults = document.getElementById('searchResults');
+            const downloadXmlLink = document.getElementById('downloadXmlLink');
+            const xmlInfoPanel = document.querySelector('.xml-info-panel');
+            const lastQueryEl = document.getElementById('lastQuery');
+            const lastRequestUrlEl = document.getElementById('lastRequestUrl');
+            const resultLengthEl = document.getElementById('resultLength');
+            let currentXmlUrl = null;
+            let lastQuery = '';
+            let lastRequestUrl = '';
+            let lastResultLength = 0;
 
             function getTorznabAttr(item, name) {
                 const attrs = item.getElementsByTagName('torznab:attr');
@@ -118,32 +144,119 @@ html(lang="en")
                 searchResults.appendChild(list);
             }
 
+            function addLog(message, type = 'info') {
+                const logPanel = document.getElementById('logPanel');
+                if (!logPanel) return;
+                const entry = document.createElement('div');
+                entry.className = `log-entry log-${type}`;
+                entry.textContent = `${new Date().toLocaleTimeString()} — ${message}`;
+                logPanel.appendChild(entry);
+                logPanel.scrollTop = logPanel.scrollHeight;
+            }
+
+            function resetDownloadLink() {
+                if (currentXmlUrl) {
+                    URL.revokeObjectURL(currentXmlUrl);
+                    currentXmlUrl = null;
+                }
+                if (downloadXmlLink) {
+                    downloadXmlLink.href = '#';
+                    downloadXmlLink.classList.add('hidden');
+                }
+            }
+
+            function setDownloadLink(href, filename, label) {
+                resetDownloadLink();
+                if (!downloadXmlLink) return;
+                downloadXmlLink.href = href;
+                downloadXmlLink.download = filename;
+                downloadXmlLink.textContent = label;
+                downloadXmlLink.classList.remove('hidden');
+            }
+
+            function createDownloadLink(xmlText, query) {
+                const xmlBlob = new Blob([xmlText], {type: 'application/xml'});
+                currentXmlUrl = URL.createObjectURL(xmlBlob);
+                const safeName = query.replace(/[^a-z0-9\-_]+/gi, '_').slice(0, 60) || 'tamilmv';
+                setDownloadLink(currentXmlUrl, `tamilmv-search-${safeName}.xml`, `Download XML for "${query}"`);
+            }
+
+            function updateXmlInfo(query, requestUrl, length) {
+                lastQuery = query;
+                lastRequestUrl = requestUrl;
+                lastResultLength = length;
+                if (lastQueryEl) lastQueryEl.textContent = query || '-';
+                if (lastRequestUrlEl) lastRequestUrlEl.textContent = requestUrl || '-';
+                if (resultLengthEl) resultLengthEl.textContent = String(length || 0);
+            }
+
+            function toggleXmlInfoPanel() {
+                if (!xmlInfoPanel) return;
+                const isHidden = xmlInfoPanel.classList.toggle('hidden');
+                xmlToggle.textContent = isHidden ? 'Show XML Info' : 'Hide XML Info';
+            }
+
+            async function loadLastApiInfo() {
+                try {
+                    const response = await fetch('/api/last');
+                    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                    const info = await response.json();
+                    updateXmlInfo(info.fullQuery, info.requestUrl, info.responseLength);
+                    if (info.status && info.status !== 200) {
+                        addLog(`Last API status: ${info.status}${info.error ? ` (${info.error})` : ''}`, 'warn');
+                    }
+                    if (info.status === 200 && info.requestUrl) {
+                        const safeName = (info.fullQuery || 'prowlarr').replace(/[^a-z0-9\-_]+/gi, '_').slice(0, 60);
+                        setDownloadLink(info.requestUrl, `tamilmv-prowlarr-${safeName}.xml`, `Download latest XML for "${info.fullQuery}"`);
+                    }
+                } catch (error) {
+                    addLog(`Failed to load last API info: ${error.message}`, 'warn');
+                }
+            }
+
             async function performSearch() {
-                const query = searchInput.value.trim();
+                const rawQuery = searchInput.value;
+                const query = rawQuery.trim();
                 if (!query) {
                     searchFeedback.textContent = 'Please enter a movie name first.';
+                    addLog('Search attempt with empty query', 'warn');
+                    resetDownloadLink();
                     return;
                 }
                 searchFeedback.textContent = 'Searching...';
                 searchResults.innerHTML = '';
+                resetDownloadLink();
+                addLog(`Full query: "${rawQuery}"`, 'info');
+                addLog(`Request URL: /api?q=${encodeURIComponent(query)}`, 'info');
 
                 try {
                     const response = await fetch(`/api?q=${encodeURIComponent(query)}`);
+                    addLog(`Response: HTTP ${response.status}`, response.ok ? 'success' : 'error');
+                    const text = await response.text();
                     if (!response.ok) {
                         throw new Error(`HTTP ${response.status}`);
                     }
-                    const text = await response.text();
+                    createDownloadLink(text, rawQuery || query);
+                    const requestUrl = `/api?q=${encodeURIComponent(query)}`;
+                    updateXmlInfo(rawQuery || query, requestUrl, text.length);
                     renderResults(text);
                     searchFeedback.textContent = `Showing results for "${query}"`;
+                    addLog(`Result length: ${text.length} chars`, 'info');
                 } catch (error) {
                     searchFeedback.textContent = `Search failed: ${error.message}`;
+                    addLog(`Search failed: ${error.message}`, 'error');
                 }
             }
 
             searchBtn.addEventListener('click', performSearch);
+            if (xmlToggle) xmlToggle.addEventListener('click', toggleXmlInfoPanel);
             searchInput.addEventListener('keypress', event => {
                 if (event.key === 'Enter') {
                     event.preventDefault();
                     performSearch();
                 }
+            });
+
+            window.addEventListener('load', () => {
+                loadLastApiInfo();
             });

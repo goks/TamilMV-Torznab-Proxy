@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom" xmlns:torznab="http://torznab.com/schemas/2015/feed">
+  <channel>
+    <atom:link href="http://localhost:5000" rel="self" type="application/rss+xml"></atom:link>
+    <title>TamilMV RSS</title>
+    <link>http://localhost:5000</link>
+    <description>TamilMV RSS Generator Developed By Febin Baiju</description>
+    <torznab:response offset="0" total="0"></torznab:response>
+  </channel>
+</rss>
