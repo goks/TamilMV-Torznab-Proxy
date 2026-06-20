@@ -49,6 +49,7 @@ export async function createRssFeed(baseUrl, magnetInfo, request) {
 							const feedItem = {
 								item: [
 									{title: post.name},
+									{category: 2000},
 									{
 										description: {
 											_cdata: post.name,

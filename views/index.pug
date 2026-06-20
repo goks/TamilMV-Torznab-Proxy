@@ -49,4 +49,101 @@ html(lang="en")
                         .helper-row
                             a(href=tryUrl, target="_blank", class="try-link") 🚀 Try Current Query
                     
+                    .search-section
+                        h2 Search From Prowlarr-style Proxy
+                        .input-group
+                            label(for="search_query") 🎬 Movie Search
+                            .input-wrapper
+                                input#search_query(type="text", class="fields", placeholder="Enter movie name, e.g. Drishyam 3")
+                        .helper-row
+                            span.search-hint Type a movie name and click Search
+                        button#search_btn.btn-submit(type="button") Search
+                        .search-feedback
+                        .search-results(id="searchResults")
+                    
                     button.btn-submit(type="submit") Save Configuration
+
+        script.
+            const searchBtn = document.getElementById('search_btn');
+            const searchInput = document.getElementById('search_query');
+            const searchFeedback = document.querySelector('.search-feedback');
+            const searchResults = document.getElementById('searchResults');
+
+            function getTorznabAttr(item, name) {
+                const attrs = item.getElementsByTagName('torznab:attr');
+                for (let i = 0; i < attrs.length; i++) {
+                    if (attrs[i].getAttribute('name') === name) {
+                        return attrs[i].getAttribute('value');
+                    }
+                }
+                return '';
+            }
+
+            function renderResults(xmlText) {
+                searchResults.innerHTML = '';
+                const parser = new DOMParser();
+                const xmlDoc = parser.parseFromString(xmlText, 'application/xml');
+                const items = xmlDoc.getElementsByTagName('item');
+
+                if (!items.length) {
+                    searchResults.innerHTML = '<div class="result-empty">No results found.</div>';
+                    return;
+                }
+
+                const list = document.createElement('div');
+                list.className = 'results-list';
+
+                for (let i = 0; i < items.length; i++) {
+                    const item = items[i];
+                    const title = item.getElementsByTagName('title')[0]?.textContent || 'No title';
+                    const link = item.getElementsByTagName('link')[0]?.textContent || '';
+                    const magnet = getTorznabAttr(item, 'magneturl');
+                    const size = getTorznabAttr(item, 'size');
+                    const seeders = getTorznabAttr(item, 'seeders');
+                    const leechers = getTorznabAttr(item, 'leechers');
+
+                    const card = document.createElement('div');
+                    card.className = 'result-card';
+                    card.innerHTML = `
+                        <h3>${title}</h3>
+                        <div><strong>Size:</strong> ${size || 'Unknown'}</div>
+                        <div><strong>Seeders:</strong> ${seeders || 'N/A'}</div>
+                        <div><strong>Leechers:</strong> ${leechers || 'N/A'}</div>
+                        <div><strong>Magnet:</strong> <a href="${magnet}">${magnet ? 'Download' : 'Missing'}</a></div>
+                        <div><strong>Torrent URL:</strong> <a href="${link}" target="_blank">Open</a></div>
+                    `;
+                    list.appendChild(card);
+                }
+
+                searchResults.appendChild(list);
+            }
+
+            async function performSearch() {
+                const query = searchInput.value.trim();
+                if (!query) {
+                    searchFeedback.textContent = 'Please enter a movie name first.';
+                    return;
+                }
+                searchFeedback.textContent = 'Searching...';
+                searchResults.innerHTML = '';
+
+                try {
+                    const response = await fetch(`/api?q=${encodeURIComponent(query)}`);
+                    if (!response.ok) {
+                        throw new Error(`HTTP ${response.status}`);
+                    }
+                    const text = await response.text();
+                    renderResults(text);
+                    searchFeedback.textContent = `Showing results for "${query}"`;
+                } catch (error) {
+                    searchFeedback.textContent = `Search failed: ${error.message}`;
+                }
+            }
+
+            searchBtn.addEventListener('click', performSearch);
+            searchInput.addEventListener('keypress', event => {
+                if (event.key === 'Enter') {
+                    event.preventDefault();
+                    performSearch();
+                }
+            });

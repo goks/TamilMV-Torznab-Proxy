@@ -276,6 +276,71 @@ body::after {
   transform: translateY(0);
 }
 
+.search-section {
+  margin-top: 20px;
+  padding-top: 20px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.search-section h2 {
+  font-size: 18px;
+  margin-bottom: 14px;
+  color: #e2e8f0;
+}
+
+.search-feedback {
+  margin-top: 10px;
+  color: #cbd5e1;
+  font-size: 13px;
+  min-height: 18px;
+}
+
+.search-results {
+  margin-top: 18px;
+}
+
+.result-empty {
+  padding: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 14px;
+  color: #cbd5e1;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.results-list {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.result-card {
+  padding: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.result-card h3 {
+  margin: 0 0 10px;
+  font-size: 16px;
+  color: #f8fafc;
+}
+
+.result-card div {
+  margin-bottom: 6px;
+  font-size: 14px;
+  color: #cbd5e1;
+}
+
+.result-card a {
+  color: #93c5fd;
+  text-decoration: none;
+}
+
+.result-card a:hover {
+  text-decoration: underline;
+}
+
 @keyframes fadeIn {
   from {
     opacity: 0;

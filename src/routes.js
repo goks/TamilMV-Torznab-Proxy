@@ -13,12 +13,8 @@ import {createRssFeed, torznabTest, noTopics} from './torznab.js';
 const router = new express.Router();
 
 const processKeyword = key => {
-	const searchKey = key?.toString()?.trim()?.split(' ')?.[0] || '';
-	if (searchKey) {
-		return encodeURIComponent(searchKey);
-	}
-
-	return '';
+	const searchKey = key?.toString()?.trim() || '';
+	return searchKey ? encodeURIComponent(searchKey) : '';
 };
 
 const slugify = s => {
@@ -112,9 +108,13 @@ router.get('/api', async (request, response) => {
 	const baseUrl = request.protocol + '://' + request.get('host');
 	const testMode = request.query.t === 'caps';
 
-	const keyword = (!testMode && configs.custom_search)
-		? encodeURIComponent(configs.custom_search_keyword)
-		: processKeyword(request.query.q) || 'drishyam 4';
+	let keyword = processKeyword(request.query.q);
+	if (!testMode && !keyword && configs.custom_search) {
+		keyword = encodeURIComponent(configs.custom_search_keyword);
+	}
+	if (!keyword) {
+		keyword = 'drishyam 4';
+	}
 	console.log('Keyword:', keyword);
 
 	let rssFeed;
