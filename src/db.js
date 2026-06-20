@@ -1,3 +1,5 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import sqlite3 from 'sqlite3';
 import {DEFAULT_TAMILMV_URL} from './config.js';
 
@@ -5,6 +7,14 @@ let db;
 
 export function connectDatabase(dbPath = './database/manager.db') {
 	return new Promise((resolve, reject) => {
+		const databaseDir = path.dirname(dbPath);
+		try {
+			fs.mkdirSync(databaseDir, {recursive: true});
+		} catch (mkdirError) {
+			console.error('Failed to create database directory:', mkdirError.message);
+			return reject(mkdirError);
+		}
+
 		db = new sqlite3.Database(dbPath, error => {
 			if (error) {
 				console.error('Database connection error:', error.message);
