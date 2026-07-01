@@ -49,14 +49,21 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Set lowercase image name
+        id: set-image
+        run: |
+          repo="${GITHUB_REPOSITORY#*/}"
+          lower_repo=$(echo "$repo" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9._-]/-/g')
+          echo "image=${{ github.repository_owner }}/${lower_repo}" >> $GITHUB_OUTPUT
+
       - name: Build and push Docker image
         uses: docker/build-push-action@v4
         with:
           context: .
           push: true
           tags: |
-            ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:latest
-            ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:${{ steps.bump.outputs.version }}
-            ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:${{ github.sha }}
-          cache-from: type=registry,ref=ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:cache
+            ghcr.io/${{ steps.set-image.outputs.image }}:latest
+            ghcr.io/${{ steps.set-image.outputs.image }}:${{ steps.bump.outputs.version }}
+            ghcr.io/${{ steps.set-image.outputs.image }}:${{ github.sha }}
+          cache-from: type=registry,ref=ghcr.io/${{ steps.set-image.outputs.image }}:cache
           cache-to: type=inline
