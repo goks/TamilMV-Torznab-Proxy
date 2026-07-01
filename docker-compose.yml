@@ -3,7 +3,7 @@ version: '3.8'
 services:
   tamilmv-proxy:
     build: .
-    image: "ghcr.io/goks/TamilMV-Torznab-Proxy:latest"
+    image: "https://ghcr.io/goks/tamilmv-torznab-proxy:latest"
     ports:
       - "5000:5000"
     environment:
