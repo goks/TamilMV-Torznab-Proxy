@@ -3,9 +3,100 @@ import * as cheerio from 'cheerio';
 import {v5 as uuid} from 'uuid';
 import moment from 'moment';
 import {getConfig} from './db.js';
-import {KEYWORDS_TO_EXCLUDE} from './config.js';
+import {DEFAULT_TAMILMV_URL, KEYWORDS_TO_EXCLUDE} from './config.js';
 
 const USER_AGENT = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:109.0) Gecko/20100101 Firefox/110.0';
+
+export function isRetryableError(error) {
+	const message = error?.message?.toLowerCase() || '';
+	return ['econnreset', 'socket hang up', 'etimedout', 'timed out', 'networkerror', 'fetch failed', 'temporarily unavailable', '429'].some(token => message.includes(token));
+}
+
+export function getFetchCandidates(url, configuredBaseUrl) {
+	const seen = new Set();
+	const candidates = [];
+	const addCandidate = candidate => {
+		if (candidate && !seen.has(candidate)) {
+			seen.add(candidate);
+			candidates.push(candidate);
+		}
+	};
+
+	addCandidate(url);
+
+	if (!url) {
+		return candidates;
+	}
+
+	try {
+		const parsedUrl = new URL(url);
+		const fallbackHosts = ['www.1tamilmv.cards', 'www.1tamilmv.durban'];
+		for (const host of fallbackHosts) {
+			if (host !== parsedUrl.host) {
+				const replacedUrl = new URL(url);
+				replacedUrl.host = host;
+				addCandidate(replacedUrl.toString());
+			}
+		}
+	} catch {
+		// Ignore invalid URLs and keep the original candidate list.
+	}
+
+	if (configuredBaseUrl) {
+		try {
+			const parsedConfiguredUrl = new URL(configuredBaseUrl);
+			const fallbackToConfiguredBase = new URL(url);
+			fallbackToConfiguredBase.protocol = parsedConfiguredUrl.protocol;
+			fallbackToConfiguredBase.host = parsedConfiguredUrl.host;
+			addCandidate(fallbackToConfiguredBase.toString());
+		} catch {
+			// Ignore invalid configured base URLs.
+		}
+	}
+
+	if (DEFAULT_TAMILMV_URL && DEFAULT_TAMILMV_URL !== configuredBaseUrl) {
+		try {
+			const parsedDefaultUrl = new URL(DEFAULT_TAMILMV_URL);
+			const fallbackToDefaultBase = new URL(url);
+			fallbackToDefaultBase.protocol = parsedDefaultUrl.protocol;
+			fallbackToDefaultBase.host = parsedDefaultUrl.host;
+			addCandidate(fallbackToDefaultBase.toString());
+		} catch {
+			// Ignore invalid default URLs.
+		}
+	}
+
+	return candidates;
+}
+
+async function fetchWithFallback(urls, options = {}) {
+	let lastError;
+	for (const candidateUrl of urls) {
+		try {
+			const response = await fetch(candidateUrl, {
+				...options,
+				signal: AbortSignal.timeout(15000),
+			});
+
+			if (response.ok) {
+				return response;
+			}
+
+			if (response.status >= 400 && response.status < 500) {
+				throw new Error(`HTTP error! status: ${response.status}`);
+			}
+
+			lastError = new Error(`HTTP error! status: ${response.status}`);
+		} catch (error) {
+			lastError = error;
+			if (!isRetryableError(error)) {
+				break;
+			}
+		}
+	}
+
+	throw lastError || new Error('Unable to fetch the requested URL.');
+}
 
 export function hasNonEnglishCharacters(string_) {
 	// eslint-disable-next-line no-control-regex
@@ -31,16 +122,12 @@ export async function searchMovies(keyword) {
 	console.log('Searching...', searchURL);
 
 	try {
-		const fetchSearch = await fetch(searchURL, {
+		const fetchSearch = await fetchWithFallback(getFetchCandidates(searchURL, tamilMvUrl), {
 			headers: {
 				'User-Agent': USER_AGENT,
 				Referer: searchURL,
 			},
 		});
-
-		if (!fetchSearch.ok) {
-			throw new Error(`HTTP error! status: ${fetchSearch.status}`);
-		}
 
 		const searchResults = await fetchSearch.json();
 		return searchResults?.results || [];
@@ -56,7 +143,7 @@ export async function getMagnetLinks(topicUrl, keyword) {
 	console.log('Fetching topic:', topicUrl);
 
 	try {
-		const topicBody = await fetch(topicUrl, {
+		const topicBody = await fetchWithFallback(getFetchCandidates(topicUrl, tamilMvUrl), {
 			credentials: 'include',
 			headers: {
 				'User-Agent': USER_AGENT,
@@ -67,10 +154,6 @@ export async function getMagnetLinks(topicUrl, keyword) {
 			method: 'GET',
 			mode: 'cors',
 		});
-
-		if (!topicBody.ok) {
-			throw new Error(`HTTP error! status: ${topicBody.status}`);
-		}
 
 		const forumTopic = await topicBody.text();
 		const $ = cheerio.load(forumTopic);

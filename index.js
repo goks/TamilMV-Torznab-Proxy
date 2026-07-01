@@ -21,6 +21,22 @@ try {
 		}
 	});
 
+	// Handle server errors (e.g., port already in use)
+	server.on('error', async err => {
+		if (err && err.code === 'EADDRINUSE') {
+			console.error(`Port ${PORT} is already in use (EADDRINUSE).`);
+			try {
+				await closeDatabase();
+				console.error('Database connection closed due to startup error. Exiting.');
+			} catch (closeErr) {
+				console.error('Error closing database after server error:', closeErr);
+			}
+			process.exit(1);
+		} else {
+			console.error('Server encountered an error:', err);
+		}
+	});
+
 	// Handle graceful shutdown
 	const shutdown = async signal => {
 		console.log(`\nReceived ${signal}. Shutting down gracefully...`);
