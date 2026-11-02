@@ -30,7 +30,7 @@ export function getFetchCandidates(url, configuredBaseUrl) {
 
 	try {
 		const parsedUrl = new URL(url);
-		const fallbackHosts = ['www.1tamilmv.cards', 'www.1tamilmv.durban'];
+		const fallbackHosts = ['www.1tamilmv.style', 'www.1tamilmv.cards'];
 		for (const host of fallbackHosts) {
 			if (host !== parsedUrl.host) {
 				const replacedUrl = new URL(url);
@@ -111,6 +111,13 @@ function cleanTitle(raw) {
 		.trim();
 }
 
+// Radarr/Sonarr rewrite "&" to "and" in search terms, but the upstream search is
+// literal, so also query the "&" spelling.
+export function searchQueryVariants(keyword) {
+	const ampersand = keyword.replace(/\s+and\s+/gi, ' & ');
+	return ampersand === keyword ? [keyword] : [keyword, ampersand];
+}
+
 export async function searchMovies(keyword) {
 	const config = await getConfig();
 	if (!config) {
@@ -118,10 +125,9 @@ export async function searchMovies(keyword) {
 	}
 
 	const tamilMvUrl = config.tamilMvUrl;
-	const searchURL = `${tamilMvUrl}/search/api/search.php?q=${keyword}&priority=1&sort=title_asc&page=1&per_page=100`;
-	console.log('Searching...', searchURL);
-
-	try {
+	const fetchVariant = async variant => {
+		const searchURL = `${tamilMvUrl}/search/api/search.php?q=${encodeURIComponent(variant)}&priority=1&sort=title_asc&page=1&per_page=100`;
+		console.log('Searching...', searchURL);
 		const fetchSearch = await fetchWithFallback(getFetchCandidates(searchURL, tamilMvUrl), {
 			headers: {
 				'User-Agent': USER_AGENT,
@@ -131,6 +137,25 @@ export async function searchMovies(keyword) {
 
 		const searchResults = await fetchSearch.json();
 		return searchResults?.results || [];
+	};
+
+	try {
+		const settled = await Promise.allSettled(searchQueryVariants(keyword).map(fetchVariant));
+		const succeeded = settled.filter(result => result.status === 'fulfilled');
+		if (succeeded.length === 0) {
+			throw settled[0].reason;
+		}
+
+		const byTid = new Map();
+		for (const result of succeeded) {
+			for (const movie of result.value) {
+				if (!byTid.has(movie.tid)) {
+					byTid.set(movie.tid, movie);
+				}
+			}
+		}
+
+		return [...byTid.values()];
 	} catch (error) {
 		console.error(`Error in searchMovies for keyword "${keyword}":`, error.message);
 		throw error;

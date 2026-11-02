@@ -36,10 +36,7 @@ const refreshLastApiInfo = ({
 	lastApiInfo.updatedAt = new Date().toISOString();
 };
 
-const processKeyword = key => {
-	const searchKey = key?.toString()?.trim() || '';
-	return searchKey ? encodeURIComponent(searchKey) : '';
-};
+const processKeyword = key => key?.toString()?.trim() || '';
 
 const slugify = s => {
 	const base = String(s || '')
@@ -114,6 +111,30 @@ router.post('/', async (request, response, next) => {
 	}
 });
 
+// Keep the torznab requests cheap: caps, paging past the first page and
+// query-less RSS syncs must never hit the upstream scraper.
+const buildFeed = rssFeed => {
+	const parser = new XMLParser({
+		ignoreAttributes: false,
+		preserveOrder: true,
+		cdataPropName: '__cdata',
+	});
+
+	const feed = `<?xml version="1.0" encoding="UTF-8" ?>${xml(rssFeed)}`;
+	const builder = new XMLBuilder({
+		ignoreAttributes: false,
+		preserveOrder: true,
+		cdataPropName: '__cdata',
+		format: true,
+	});
+	return builder.build(parser.parse(feed));
+};
+
+const sendFeed = (response, rssFeed) => {
+	response.contentType('Content-Type', 'text/xml');
+	return response.send(buildFeed(rssFeed));
+};
+
 // GET /api - Torznab Proxy RSS endpoint
 router.get('/api', async (request, response) => {
 	let config;
@@ -148,17 +169,25 @@ router.get('/api', async (request, response) => {
 		responseLength: 0,
 		error: null,
 	});
-	if (!testMode && !keyword && configs.custom_search) {
-		keyword = encodeURIComponent(configs.custom_search_keyword);
-	}
-	if (!keyword) {
-		keyword = 'drishyam 4';
+	if (!keyword && configs.custom_search) {
+		keyword = configs.custom_search_keyword;
 	}
 	console.log('Keyword:', keyword);
 
+	if (testMode || !keyword || request.query.offset >= 50) {
+		refreshLastApiInfo({
+			fullQuery: rawQuery || '-',
+			requestUrl,
+			status: 200,
+			responseLength: 0,
+			error: null,
+		});
+		return sendFeed(response, testMode ? await torznabTest() : await noTopics(baseUrl));
+	}
+
 	// Skip search entirely if the query contains non-English characters
 	// to avoid slow/hanging API calls on the upstream site
-	if (!testMode && hasNonEnglishCharacters(rawQuery)) {
+	if (hasNonEnglishCharacters(rawQuery)) {
 		console.log('Non-English query detected, returning empty results to avoid slow upstream calls.');
 		refreshLastApiInfo({
 			fullQuery: rawQuery || '-',
@@ -167,48 +196,27 @@ router.get('/api', async (request, response) => {
 			responseLength: 0,
 			error: null,
 		});
-		const emptyFeed = await noTopics(baseUrl);
-		const parser = new XMLParser({
-			ignoreAttributes: false,
-			preserveOrder: true,
-			cdataPropName: '__cdata',
-		});
-		const feed = `<?xml version="1.0" encoding="UTF-8" ?>${xml(emptyFeed)}`;
-		const builder = new XMLBuilder({
-			ignoreAttributes: false,
-			preserveOrder: true,
-			cdataPropName: '__cdata',
-			format: true,
-		});
-		const xmlContent = builder.build(parser.parse(feed));
-		response.contentType('Content-Type', 'text/xml');
-		return response.send(xmlContent);
+		return sendFeed(response, await noTopics(baseUrl));
 	}
 
 	let rssFeed;
 	try {
 		const searchResults = await searchMovies(keyword);
 		try {
-			if (testMode) {
-				rssFeed = await torznabTest();
-			} else if (request.query.offset >= 50) {
-				rssFeed = await noTopics(baseUrl);
-			} else {
-				const topics = searchResults
-					.filter(result => Boolean(result.starter_role))
-					.map(result => ({
-						url: getTopicUrl(result.tid, result.title, tamilMvUrl),
-						title: result.title,
-					}));
+			const topics = searchResults
+				.filter(result => Boolean(result.starter_role))
+				.map(result => ({
+					url: getTopicUrl(result.tid, result.title, tamilMvUrl),
+					title: result.title,
+				}));
 
-				if (topics.length > 0) {
-					const magnetInfo = await scrapTorrents(topics, keyword);
-					rssFeed = magnetInfo.length > 0
-						? await createRssFeed(baseUrl, magnetInfo, request.query)
-						: await noTopics(baseUrl);
-				} else {
-					rssFeed = await noTopics(baseUrl);
-				}
+			if (topics.length > 0) {
+				const magnetInfo = await scrapTorrents(topics, keyword);
+				rssFeed = magnetInfo.length > 0
+					? await createRssFeed(baseUrl, magnetInfo, request.query)
+					: await noTopics(baseUrl);
+			} else {
+				rssFeed = await noTopics(baseUrl);
 			}
 		} catch (scrapError) {
 			console.error('Error fetching topics / scraping torrents:', scrapError.message);
@@ -239,20 +247,7 @@ router.get('/api', async (request, response) => {
 		});
 	}
 
-	const parser = new XMLParser({
-		ignoreAttributes: false,
-		preserveOrder: true,
-		cdataPropName: '__cdata',
-	});
-
-	const feed = `<?xml version="1.0" encoding="UTF-8" ?>${xml(rssFeed)}`;
-	const builder = new XMLBuilder({
-		ignoreAttributes: false,
-		preserveOrder: true,
-		cdataPropName: '__cdata',
-		format: true,
-	});
-	const xmlContent = builder.build(parser.parse(feed));
+	const xmlContent = buildFeed(rssFeed);
 
 	refreshLastApiInfo({
 		fullQuery: rawQuery || '-',
