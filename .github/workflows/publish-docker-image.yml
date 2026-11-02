@@ -30,10 +30,14 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           npm --no-git-tag-version version patch
           VERSION=$(node -p "require('./package.json').version")
-          git add package.json package-lock.json 2>/dev/null || true
-          git commit -m "chore(release): $VERSION [skip ci]" || echo "no changes to commit"
-          git tag -f "v$VERSION" || true
-          git push origin HEAD --tags
+          git commit -am "chore(release): $VERSION [skip ci]" || echo "no changes to commit"
+          git push origin HEAD
+          if git ls-remote --exit-code --tags origin "refs/tags/v$VERSION" >/dev/null; then
+            echo "tag v$VERSION already exists, skipping"
+          else
+            git tag "v$VERSION"
+            git push origin "refs/tags/v$VERSION"
+          fi
           echo "version=$VERSION" >> $GITHUB_OUTPUT
 
       - name: Set up QEMU (for multi-platform builds)
